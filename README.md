@@ -57,7 +57,7 @@ En Firebase Console
 
 🧪 Ejemplo de google-services.json
 
-Este es un ejemplo de referencia para tus compañeros.
+Este es un ejemplo de referencia
 No contiene datos reales y no debe usarse en producción.
 
 {
