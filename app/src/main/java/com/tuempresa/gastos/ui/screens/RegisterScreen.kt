@@ -12,54 +12,43 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun LoginScreen(
-    error: String?,
+fun RegisterScreen(
     loading: Boolean,
-    onEmailSignIn: (String, String) -> Unit,
-    onEmailSignUp: (String, String) -> Unit, // aquí lo usamos solo para navegar a Register
-    onGoogleClick: () -> Unit
+    error: String?,
+    onBack: () -> Unit,
+    onRegister: (String, String, String) -> Unit
 ) {
+    var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
     val snack = remember { SnackbarHostState() }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Iniciar sesión") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Crear cuenta") },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Atrás") } }
+            )
+        },
         snackbarHost = { SnackbarHost(snack) }
     ) { inner ->
         Column(
             modifier = Modifier.padding(inner).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nombre") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Correo") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(
-                value = email, onValueChange = { email = it },
-                label = { Text("Correo") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = pass, onValueChange = { pass = it },
-                label = { Text("Contraseña") }, singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                value = pass, onValueChange = { pass = it }, label = { Text("Contraseña") },
+                singleLine = true, visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth()
             )
-
             Button(
-                onClick = { onEmailSignIn(email, pass) },
-                enabled = !loading,
+                onClick = { onRegister(email, pass, name) },
+                enabled = !loading && name.isNotBlank() && email.isNotBlank() && pass.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Entrar") }
-
-            TextButton(
-                onClick = { onEmailSignUp("", "") }, // navega a Register
-                enabled = !loading,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Crear cuenta") }
-
-            OutlinedButton(
-                onClick = onGoogleClick,
-                enabled = !loading,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Continuar con Google") }
+            ) { Text("Registrarme") }
 
             LaunchedEffect(error) {
                 if (!error.isNullOrBlank()) snack.showSnackbar(error)

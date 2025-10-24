@@ -15,50 +15,56 @@ class ExpenseRepository(
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) {
-    /** UID del usuario actual o error si no hay sesión */
-    private fun requireUid(): String =
-        auth.currentUser?.uid ?: error("Usuario no autenticado (UID nulo)")
+    /** UID actual o null (NO lanzar excepción aquí). */
+    private fun currentUid(): String? = auth.currentUser?.uid
 
-    /** Referencia a /users/{uid}/expenses */
-    private fun col() = db.collection("users")
-        .document(requireUid())
+    /** /users/{uid}/expenses */
+    private fun col(uid: String) = db.collection("users")
+        .document(uid)
         .collection("expenses")
 
-    /** Crear/actualizar un gasto */
-    suspend fun add(expense: Expense) {
-        col().document(expense.id).set(expense).await()
+    /** Crear/actualizar un gasto. Si no hay id, lo crea. Devuelve el id. */
+    suspend fun add(expense: Expense): String {
+        val uid = currentUid() ?: throw IllegalStateException("No hay sesión activa")
+        return if (expense.id.isBlank()) {
+            val ref = col(uid).add(expense).await()
+            ref.id
+        } else {
+            col(uid).document(expense.id).set(expense).await()
+            expense.id
+        }
     }
 
-    /** Eliminar un gasto */
     suspend fun delete(id: String) {
-        col().document(id).delete().await()
+        val uid = currentUid() ?: throw IllegalStateException("No hay sesión activa")
+        col(uid).document(id).delete().await()
     }
 
-    /** Flujo de gastos por mes (month0: 0=enero, 11=diciembre) */
+    /** Flujo por mes (0=enero..11=diciembre). Si no hay uid, emite vacío y termina sin error. */
     fun byMonthFlow(year: Int, month0: Int): Flow<List<Expense>> = callbackFlow {
-        // Si no hay usuario logueado, devolvemos vacío y cerramos el flow
-        val uid = auth.currentUser?.uid
+        val uid = currentUid()
         if (uid == null) {
             trySend(emptyList())
-            close(IllegalStateException("Usuario no autenticado"))
+            // No cierres con excepción: simplemente cierra el canal sin error.
+            awaitClose { /* noop */ }
             return@callbackFlow
         }
 
         val start = Timestamp(GregorianCalendar(year, month0, 1).time)
         val end = Timestamp(GregorianCalendar(year, month0 + 1, 1).time)
 
-        val registration = db.collection("users")
-            .document(uid)
-            .collection("expenses")
+        val reg = db.collection("users").document(uid).collection("expenses")
             .whereGreaterThanOrEqualTo("date", start)
             .whereLessThan("date", end)
             .orderBy("date", Query.Direction.DESCENDING)
-            .addSnapshotListener { snap, _ ->
-                if (snap != null) {
-                    trySend(snap.documents.mapNotNull { it.toObject(Expense::class.java) })
+            .addSnapshotListener { snap, err ->
+                if (err != null) return@addSnapshotListener
+                val list = snap?.documents.orEmpty().mapNotNull { d ->
+                    d.toObject(Expense::class.java)?.copy(id = d.id)
                 }
+                trySend(list)
             }
 
-        awaitClose { registration.remove() }
+        awaitClose { reg.remove() }
     }
 }

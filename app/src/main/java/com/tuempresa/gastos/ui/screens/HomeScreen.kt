@@ -1,261 +1,262 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.tuempresa.gastos.ui.screens
 
-import androidx.compose.foundation.clickable
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Label
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.toSize
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.draw.alpha
-import com.google.firebase.Timestamp
-import com.google.firebase.auth.FirebaseAuth
-import com.tuempresa.gastos.data.model.Category
+import com.tuempresa.gastos.data.model.Category as ExpenseCategory
 import com.tuempresa.gastos.data.model.Expense
-import com.tuempresa.gastos.data.repo.ExpenseRepository
+import com.tuempresa.gastos.ui.viewmodel.ExpenseViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Calendar
+import java.util.Date
 import java.util.Locale
-import java.util.UUID
 
-
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onLogout: () -> Unit) {
-    val user = FirebaseAuth.getInstance().currentUser
-    val nombre = user?.displayName ?: user?.email ?: "Usuario"
+fun HomeScreen(
+    expenseVm: ExpenseViewModel,
+    categories: List<ExpenseCategory>,
+    onLogout: (() -> Unit)? = null
+) {
+    val ui by expenseVm.state.collectAsState()
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snack = remember { SnackbarHostState() }
 
-    var selectedTab by remember { mutableStateOf(0) } // 0 = Agregar, 1 = Historial
-    val tabs = listOf("Agregar", "Historial")
+    // ---- Estado del formulario ----
+    var name by remember { mutableStateOf("") }
+    var amountText by remember { mutableStateOf("") }
+    var selectedCategory: ExpenseCategory? by remember { mutableStateOf(null) }
+    var note by remember { mutableStateOf("") }
+    var pickedDate by remember { mutableStateOf(Date()) }
+
+    val amount = amountText.toDoubleOrNull() ?: 0.0
+    val canSave = name.isNotBlank() && amount > 0.0 && selectedCategory != null
+
+    // Mostrar errores del VM
+    LaunchedEffect(ui.error) {
+        val e = ui.error
+        if (!e.isNullOrBlank()) {
+            snack.showSnackbar(e)
+        }
+    }
+
+    val dateFmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Gastos personales") },
-                actions = { TextButton(onClick = onLogout) { Text("Salir") } }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            Text(
-                text = "Bienvenido, $nombre 👋",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            TabRow(selectedTabIndex = selectedTab) {
-                tabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        text = { Text(title) }
-                    )
-                }
-            }
-
-            when (selectedTab) {
-                0 -> AddExpenseSection()
-                1 -> HistorySection()
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AddExpenseSection() {
-    val repo = remember { ExpenseRepository() }
-    val scope = rememberCoroutineScope()
-
-    var name by remember { mutableStateOf("") }
-    var amount by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf(Category.values().first()) }
-    var note by remember { mutableStateOf("") }
-
-    // estado del menú y tamaño del campo para anclar ancho
-    var menuOpen by remember { mutableStateOf(false) }
-    val categories = remember { Category.values().toList() }
-    var fieldSize by remember { mutableStateOf(Size.Zero) }
-    val density = LocalDensity.current
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.Start
-    ) {
-        Text("Nuevo gasto", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Nombre del gasto") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(8.dp))
-
-        OutlinedTextField(
-            value = amount,
-            onValueChange = { amount = it },
-            label = { Text("Monto") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(8.dp))
-
-        // ---- Selector de categoría con overlay clickable + menú anclado ----
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .zIndex(1f) // asegura que el menú quede arriba
-        ) {
-            OutlinedTextField(
-                value = category.name,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Categoría") },
-                trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onGloballyPositioned { coords -> fieldSize = coords.size.toSize() }
-            )
-            // Capa invisible que SÍ captura el toque, aunque el TextField sea readOnly
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .alpha(0f)
-                    .clickable { menuOpen = true }
-            )
-            DropdownMenu(
-                expanded = menuOpen,
-                onDismissRequest = { menuOpen = false },
-                modifier = Modifier.width(with(density) { fieldSize.width.toDp() })
-            ) {
-                categories.forEach { c ->
-                    DropdownMenuItem(
-                        text = { Text(c.name) },
-                        onClick = {
-                            category = c
-                            menuOpen = false
-                        }
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = note,
-            onValueChange = { note = it },
-            label = { Text("Nota (opcional)") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(16.dp))
-
-        val canSave = name.isNotBlank() && (amount.toDoubleOrNull() ?: 0.0) > 0.0
-
-        Button(
-            enabled = canSave,
-            onClick = {
-                val expense = Expense(
-                    id = UUID.randomUUID().toString(),
-                    name = name.trim(),
-                    amount = amount.toDoubleOrNull() ?: 0.0,
-                    category = category,
-                    date = Timestamp.now(),
-                    note = note.ifBlank { null }
-                )
-                scope.launch {
-                    repo.add(expense)
-                    name = ""; amount = ""; note = ""
-                }
-            }
-        ) { Text("Guardar") }
-    }
-}
-
-
-@Composable
-private fun HistorySection() {
-    val repo = remember { ExpenseRepository() }
-    val scope = rememberCoroutineScope()
-
-    // Mes actual
-    var cal by remember { mutableStateOf(Calendar.getInstance()) }
-    val year = cal.get(Calendar.YEAR)
-    val month0 = cal.get(Calendar.MONTH)
-
-    val expensesFlow = remember(year, month0) { repo.byMonthFlow(year, month0) }
-    val expenses by expensesFlow.collectAsState(initial = emptyList())
-
-    val total = expenses.sumOf { it.amount }
-    val monthName = SimpleDateFormat("LLLL yyyy", Locale.getDefault())
-        .format(cal.time)
-        .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-
-    val fmt = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
-
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(onClick = {
-                cal = (cal.clone() as Calendar).apply { add(Calendar.MONTH, -1) }
-            }) { Text("◀ Mes anterior") }
-
-            Text(monthName, style = MaterialTheme.typography.titleMedium)
-
-            TextButton(onClick = {
-                cal = (cal.clone() as Calendar).apply { add(Calendar.MONTH, +1) }
-            }) { Text("Mes siguiente ▶") }
-        }
-
-        Spacer(Modifier.height(8.dp))
-        Text("Total del mes: $${"%.2f".format(total)}", style = MaterialTheme.typography.bodyLarge)
-        Spacer(Modifier.height(8.dp))
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            items(expenses, key = { it.id }) { e ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp)
-                ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(e.name, style = MaterialTheme.typography.titleSmall)
-                        Text("${e.category.name} • ${fmt.format(e.date.toDate())}")
-                        Text("$${"%.2f".format(e.amount)}", style = MaterialTheme.typography.bodyLarge)
-                        if (!e.note.isNullOrBlank()) {
-                            Text("Nota: ${e.note}")
-                        }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { scope.launch { repo.delete(e.id) } }) {
-                                Text("Eliminar")
-                            }
-                        }
+                actions = {
+                    if (onLogout != null) {
+                        TextButton(onClick = onLogout) { Text("Salir") }
                     }
                 }
+            )
+        },
+        snackbarHost = { SnackbarHost(hostState = snack) }
+    ) { inner ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(inner)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Nombre
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Nombre del gasto") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // Monto
+            OutlinedTextField(
+                value = amountText,
+                onValueChange = { amountText = it },
+                label = { Text("Monto") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // --- Categoría (Dropdown seguro con Category?) ---
+            var catExpanded by remember { mutableStateOf(false) }
+
+            ExposedDropdownMenuBox(
+                expanded = catExpanded,
+                onExpandedChange = { catExpanded = !catExpanded }
+            ) {
+                OutlinedTextField(
+                    value = selectedCategory?.name ?: "Selecciona categoría",
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Categoría") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Label,
+                            contentDescription = "Categoría"
+                        )
+                    },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = catExpanded)
+                    },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+
+                ExposedDropdownMenu(
+                    expanded = catExpanded,
+                    onDismissRequest = { catExpanded = false }
+                ) {
+                    categories.forEach { cat ->
+                        DropdownMenuItem(
+                            text = { Text(cat.name) },
+                            onClick = {
+                                selectedCategory = cat
+                                catExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Fecha (solo visual; reemplaza por tu DatePicker si lo tenías)
+            OutlinedTextField(
+                value = dateFmt.format(pickedDate),
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Fecha") },
+                leadingIcon = { Icon(Icons.Default.Category, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // Nota
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it },
+                label = { Text("Nota (opcional)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // Botón Guardar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    enabled = canSave && !ui.loading,
+                    onClick = {
+                        val cat = selectedCategory
+                        if (cat == null) {
+                            scope.launch { snack.showSnackbar("Selecciona una categoría") }
+                            return@Button
+                        }
+                        expenseVm.addExpense(
+                            name = name,
+                            amount = amount,
+                            cat = cat,                 // <- ya no nulo
+                            date = pickedDate,
+                            note = note.takeIf { it.isNotBlank() }
+                        )
+                        // Limpieza visual
+                        name = ""
+                        amountText = ""
+                        note = ""
+                        selectedCategory = null
+                        Toast.makeText(ctx, "Gasto guardado", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Guardar")
+                }
+            }
+
+            Divider()
+
+            // Total
+            Text(
+                text = "Total del mes: ${"%.2f".format(ui.total)}",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            // Lista / Historial
+            if (ui.loading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) { CircularProgressIndicator() }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f, fill = true)
+                ) {
+                    items(ui.items, key = { it.id }) { exp ->
+                        ExpenseRow(
+                            expense = exp,
+                            onDelete = { expenseVm.delete(exp.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpenseRow(
+    expense: Expense,
+    onDelete: () -> Unit
+) {
+    val dateFmt = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()) }
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(expense.name, style = MaterialTheme.typography.titleMedium)
+                // Uso SEGURO de category? (puede venir nulo)
+                Text(
+                    text = expense.category?.name ?: "Sin categoría",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = dateFmt.format(expense.date.toDate()),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (!expense.note.isNullOrBlank()) {
+                    Text(expense.note!!, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "$${"%.2f".format(expense.amount)}",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onDelete) { Text("Eliminar") }
             }
         }
     }

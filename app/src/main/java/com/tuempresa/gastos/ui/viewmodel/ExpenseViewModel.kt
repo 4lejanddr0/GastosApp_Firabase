@@ -1,9 +1,9 @@
-// ui/viewmodel/ExpenseViewModel.kt
 package com.tuempresa.gastos.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Timestamp
+import com.google.firebase.auth.FirebaseAuth
 import com.tuempresa.gastos.data.model.Category
 import com.tuempresa.gastos.data.model.Expense
 import com.tuempresa.gastos.data.repo.ExpenseRepository
@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import java.util.Date
 
 data class ExpenseUiState(
     val items: List<Expense> = emptyList(),
@@ -26,10 +27,13 @@ data class ExpenseUiState(
 class ExpenseViewModel(
     private val repo: ExpenseRepository = ExpenseRepository()
 ) : ViewModel() {
+
     private val _state = MutableStateFlow(ExpenseUiState())
     val state: StateFlow<ExpenseUiState> = _state.asStateFlow()
 
-    init { observeMonth(_state.value.year, _state.value.month0) }
+    init {
+        observeMonth(_state.value.year, _state.value.month0)
+    }
 
     fun changeMonth(year: Int, month0: Int) {
         _state.value = _state.value.copy(year = year, month0 = month0)
@@ -44,20 +48,45 @@ class ExpenseViewModel(
         }
     }
 
-    fun addExpense(name: String, amount: Double, cat: Category, date: java.util.Date, note: String?) =
-        viewModelScope.launch {
-            runCatching {
-                repo.add(
-                    Expense(
-                        name = name.trim(),
-                        amount = amount,
-                        category = cat,
-                        date = Timestamp(date),
-                        note = note?.takeIf { it.isNotBlank() }
-                    )
-                )
-            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+    /**
+     * Agrega un gasto para el usuario logueado.
+     * REQUIERE reglas tipo:
+     * match /users/{userId}/expenses/{docId} {
+     *   allow read, write: if request.auth != null && request.auth.uid == userId;
+     * }
+     */
+    fun addExpense(
+        name: String,
+        amount: Double,
+        cat: Category,
+        date: Date,
+        note: String?
+    ) = viewModelScope.launch {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) {
+            _state.value = _state.value.copy(error = "Debes iniciar sesión para guardar gastos.")
+            return@launch
         }
 
-    fun delete(id: String) = viewModelScope.launch { repo.delete(id) }
+        runCatching {
+            val expense = Expense(
+                name = name.trim(),
+                amount = amount,
+                category = cat,
+                date = Timestamp(date),
+                note = note?.takeIf { it.isNotBlank() },
+                userId = uid // <-- clave para que pasen las reglas
+            )
+            repo.add(expense)
+        }.onFailure { e ->
+            _state.value = _state.value.copy(error = e.message ?: "Error al guardar el gasto")
+        }
+    }
+
+    fun delete(id: String) = viewModelScope.launch {
+        runCatching { repo.delete(id) }
+            .onFailure { e ->
+                _state.value = _state.value.copy(error = e.message ?: "Error al eliminar")
+            }
+    }
 }
