@@ -1,0 +1,28 @@
+# Gradle y compilaciones
+.gradle/
+build/
+**/build/
+local.properties
+
+# Android Studio (config local)
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+
+# Logs temporales
+*.log
+
+# Keystores / llaves
+*.jks
+*.keystore
+**/keystore/**
+**/keys/**
+
+# Firebase
+app/google-services.json
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
