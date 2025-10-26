@@ -3,6 +3,9 @@
 Aplicación Android para registro y control de gastos personales, desarrollada con **Kotlin** y **Jetpack Compose**, e integrada con **Firebase** para autenticación y almacenamiento en la nube.
 
 ---
+## 🎥 Video de presentación  
+Haz clic en el enlace para ver el video demostrativo de la aplicación 👇
+https://youtu.be/HbDM4RHkK0s
 
 ## 👥 Integrantes del proyecto
 
